@@ -22,7 +22,7 @@ function isAdmin(userId) {
 }
 
 async function checkAllAccounts(userId) {
-  const accounts = getAccounts(userId);
+  const accounts = await getAccounts(userId);
   if (accounts.length === 0) {
     return '没有保存任何账号。先用 /add 添加账号。';
   }
@@ -30,7 +30,7 @@ async function checkAllAccounts(userId) {
   const results = [];
   for (const acc of accounts) {
     const result = await loginAndCheckExpiry(acc.username, acc.password);
-    logCheck(userId, acc.id, result.expiryDate || null, result.daysLeft || null);
+    await logCheck(userId, acc.id, result.expiryDate || null, result.daysLeft || null);
 
     if (result.success) {
       const days = result.daysLeft;
@@ -134,7 +134,7 @@ bot.onText(/\/list/, async (msg) => {
     return bot.sendMessage(userId, '❌ 只有管理员可以使用此机器人');
   }
 
-  const accounts = getAccounts(userId);
+  const accounts = await getAccounts(userId);
   if (accounts.length === 0) {
     return bot.sendMessage(userId, '没有保存任何账号。用 /add 添加。', { reply_markup: mainMenu() });
   }
@@ -149,14 +149,14 @@ bot.onText(/\/list/, async (msg) => {
   });
 });
 
-bot.onText(/\/delete (\d+)/, (msg, match) => {
+bot.onText(/\/delete (\d+)/, async (msg, match) => {
   const userId = msg.chat.id;
   if (!isAdmin(userId)) {
     return bot.sendMessage(userId, '❌ 只有管理员可以使用此机器人');
   }
 
   const accountId = parseInt(match[1]);
-  const result = deleteAccount(userId, accountId);
+  const result = await deleteAccount(userId, accountId);
   if (result.changes > 0) {
     bot.sendMessage(userId, '✅ 账号已删除。', { reply_markup: mainMenu() });
   } else {
@@ -189,7 +189,7 @@ bot.onText(/\/check/, async (msg) => {
 
 // ─── Inline Button Handlers ───────────────────────────────────────────────────
 
-bot.on('message', (msg) => {
+bot.on('message', async (msg) => {
   const userId = msg.chat.id;
   const text = msg.text;
 
@@ -210,7 +210,7 @@ bot.on('message', (msg) => {
     return bot.emit('message', { ...msg, text: '/help' });
   }
   if (text === '❌ 删除账号') {
-    const accounts = getAccounts(userId);
+    const accounts = await getAccounts(userId);
     if (accounts.length === 0) {
       return bot.sendMessage(userId, '没有账号可删除。', { reply_markup: mainMenu() });
     }
@@ -232,7 +232,7 @@ bot.on('message', (msg) => {
     pendingActions.delete(userId);
 
     try {
-      addAccount(userId, username, password);
+      await addAccount(userId, username, password);
       bot.sendMessage(userId, `✅ 账号已保存: ${username}`, { reply_markup: mainMenu() });
     } catch (err) {
       bot.sendMessage(userId, `❌ 保存失败: ${err.message}`);
@@ -245,7 +245,7 @@ bot.on('message', (msg) => {
       return bot.sendMessage(userId, '❌ ID 格式不正确', { reply_markup: mainMenu() });
     }
 
-    const result = deleteAccount(userId, accountId);
+    const result = await deleteAccount(userId, accountId);
     if (result.changes > 0) {
       return bot.sendMessage(userId, '✅ 账号已删除。', { reply_markup: mainMenu() });
     }
@@ -254,14 +254,14 @@ bot.on('message', (msg) => {
 });
 
 // /renew <id> - get renewal link
-bot.onText(/\/renew (\d+)/, (msg, match) => {
+bot.onText(/\/renew (\d+)/, async (msg, match) => {
   const userId = msg.chat.id;
   if (!isAdmin(userId)) {
     return bot.sendMessage(userId, '❌ 只有管理员可以使用此机器人');
   }
 
   const accountId = parseInt(match[1]);
-  const accounts = getAccounts(userId);
+  const accounts = await getAccounts(userId);
   const account = accounts.find(a => a.id === accountId);
 
   if (!account) {
@@ -295,7 +295,7 @@ bot.on('callback_query', async (query) => {
   if (!data.startsWith('recheck:')) return;
 
   const accountId = parseInt(data.split(':')[1]);
-  const accounts = getAccounts(userId);
+  const accounts = await getAccounts(userId);
   const account = accounts.find(a => a.id === accountId);
 
   if (!account) {
@@ -306,7 +306,7 @@ bot.on('callback_query', async (query) => {
   bot.answerCallbackQuery(query.id, { text: '🔄 正在重新检测...' });
 
   const result = await loginAndCheckExpiry(account.username, account.password);
-  logCheck(userId, account.id, result.expiryDate || null, result.daysLeft || null);
+  await logCheck(userId, account.id, result.expiryDate || null, result.daysLeft || null);
 
   let msgText;
   if (result.success) {
@@ -337,13 +337,13 @@ bot.on('polling_error', (err) => {
 async function autoCheckAndRemind() {
   if (!ADMIN_ID) return;
 
-  const accounts = getAccounts(ADMIN_ID);
+  const accounts = await getAccounts(ADMIN_ID);
   if (accounts.length === 0) return;
 
   for (const acc of accounts) {
     try {
       const result = await loginAndCheckExpiry(acc.username, acc.password);
-      logCheck(ADMIN_ID, acc.id, result.expiryDate || null, result.daysLeft || null);
+      await logCheck(ADMIN_ID, acc.id, result.expiryDate || null, result.daysLeft || null);
 
       if (result.success && result.daysLeft <= 1) {
         await bot.sendMessage(
