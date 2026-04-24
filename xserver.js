@@ -1,51 +1,47 @@
 const { chromium } = require('playwright');
 
-const LOGIN_URL = 'https://secure.xserver.ne.jp/xapanel/?action=user_login_index';
+const LOGIN_URL = 'https://secure.xserver.ne.jp/xapanel/login/xvps/';
 const VPS_INDEX_URL = 'https://secure.xserver.ne.jp/xapanel/xvps/index';
 
 async function loginAndCheckExpiry(username, password) {
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+
+  const context = await browser.newContext({
+    viewport: { width: 1080, height: 1024 },
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
+  });
+
   const page = await context.newPage();
 
   try {
-    // Step 1: Login
-    await page.goto(LOGIN_URL, { waitUntil: 'networkidle' });
-    await page.fill('input[name="login_id"]', username);
-    await page.fill('input[name="password"]', password);
-    await page.click('button[type="submit"]');
-    await page.waitForURL('**/xapanel/**', { timeout: 15000 });
+    await page.goto(LOGIN_URL, { waitUntil: 'networkidle', timeout: 60000 });
 
-    // Step 2: Go to VPS index
-    await page.goto(VPS_INDEX_URL, { waitUntil: 'networkidle' });
+    await page.locator('#memberid').fill(username);
+    await page.locator('#user_password').fill(password);
+    await page.locator('text=ログインする').click();
 
-    // Step 3: Extract expiry date
-    // Selector: tr:has(.freeServerIco) .contract__term
-    const expiryText = await page.$eval(
-      'tr:has(.freeServerIco) .contract__term',
-      el => el.textContent.trim()
-    ).catch(() => null);
+    await page.waitForURL('**/xapanel/xvps/index**', { timeout: 30000 }).catch(async () => {
+      await page.goto(VPS_INDEX_URL, { waitUntil: 'networkidle', timeout: 60000 });
+    });
+
+    await page.goto(VPS_INDEX_URL, { waitUntil: 'networkidle', timeout: 60000 });
+
+    const expiryText = await page
+      .locator('tr:has(.freeServerIco) .contract__term')
+      .first()
+      .textContent({ timeout: 20000 })
+      .catch(() => null);
 
     if (!expiryText) {
-      // Try alternative selectors
-      const altSelectors = [
-        '.contract__term',
-        'tr.contract__row .contract__term',
-        '[class*="term"]'
-      ];
-      for (const sel of altSelectors) {
-        const text = await page.$(sel);
-        if (text) {
-          const content = await text.textContent();
-          if (content && content.match(/\d{4}-\d{2}-\d{2}/)) {
-            return parseExpiry(content.trim());
-          }
-        }
-      }
-      return { success: false, error: 'Could not find expiry date on page' };
+      await page.screenshot({ path: `/tmp/xserver-check-failed-${Date.now()}.png`, fullPage: true });
+      return { success: false, error: '找不到免费 VPS 利用期限，可能登录失败或页面结构变化' };
     }
 
-    return parseExpiry(expiryText);
+    return parseExpiry(expiryText.trim());
   } catch (err) {
     return { success: false, error: err.message };
   } finally {
@@ -54,54 +50,25 @@ async function loginAndCheckExpiry(username, password) {
 }
 
 function parseExpiry(text) {
-  // Expected format: 2026-04-25
-  const match = text.match(/(\d{4}[-\/]\d{2}[-\/]\d{2})/);
+  const match = text.match(/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})/);
   if (!match) {
-    return { success: false, error: `Invalid date format: ${text}` };
+    return { success: false, error: `日期格式不正确: ${text}` };
   }
 
-  const expiryDate = new Date(match[1].replace(/\//g, '-'));
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  expiryDate.setHours(0, 0, 0, 0);
+  const expiryDate = `${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`;
 
-  const diffTime = expiryDate - today;
-  const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  const todayText = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Tokyo' });
+  const today = new Date(`${todayText}T00:00:00+09:00`);
+  const expiry = new Date(`${expiryDate}T00:00:00+09:00`);
+
+  const daysLeft = Math.ceil((expiry - today) / 86400000);
 
   return {
     success: true,
-    expiryDate: match[1].replace(/\//g, '-'),
+    expiryDate,
     daysLeft,
-    needsRenewal: daysLeft <= 1
+    needsRenewal: daysLeft <= 1,
   };
 }
 
-async function getRenewalUrl(username, password) {
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
-  const page = await context.newPage();
-
-  try {
-    await page.goto(LOGIN_URL, { waitUntil: 'networkidle' });
-    await page.fill('input[name="login_id"]', username);
-    await page.fill('input[name="password"]', password);
-    await page.click('button[type="submit"]');
-    await page.waitForURL('**/xapanel/**', { timeout: 15000 });
-
-    await page.goto(VPS_INDEX_URL, { waitUntil: 'networkidle' });
-
-    // Find renewal button link
-    const renewLink = await page.$eval(
-      'tr:has(.freeServerIco) a[href*="freevps/extend"]',
-      el => el.href
-    ).catch(() => null);
-
-    return renewLink || 'https://secure.xserver.ne.jp/xapanel/freevps/extend/index';
-  } catch (err) {
-    return null;
-  } finally {
-    await browser.close();
-  }
-}
-
-module.exports = { loginAndCheckExpiry, getRenewalUrl };
+module.exports = { loginAndCheckExpiry };

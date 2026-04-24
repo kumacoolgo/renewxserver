@@ -1,16 +1,11 @@
-FROM node:20-slim
-
-RUN apt-get update && apt-get install -y \
-    chromium \
-    && rm -rf /var/lib/apt/lists/*
+FROM mcr.microsoft.com/playwright:v1.49.1-jammy
 
 WORKDIR /app
 
 COPY package*.json ./
 RUN npm install --production
 
-COPY *.js ./
+COPY . .
 
-RUN npx playwright install chromium
-
+ENV NODE_ENV=production
 CMD ["node", "bot.js"]
