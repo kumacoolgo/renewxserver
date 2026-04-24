@@ -215,6 +215,7 @@ bot.on('message', (msg) => {
       return bot.sendMessage(userId, '没有账号可删除。', { reply_markup: mainMenu() });
     }
     const list = accounts.map((acc) => `• ${acc.username} (ID: ${acc.id})`).join('\n');
+    pendingActions.set(userId, { action: 'waiting_delete_id' });
     return bot.sendMessage(userId, `请回复要删除的账号 ID：\n\n${list}`, { reply_markup: { force_reply: true } });
   }
 
@@ -236,6 +237,19 @@ bot.on('message', (msg) => {
     } catch (err) {
       bot.sendMessage(userId, `❌ 保存失败: ${err.message}`);
     }
+  } else if (state.action === 'waiting_delete_id') {
+    const accountId = parseInt(text.trim());
+    pendingActions.delete(userId);
+
+    if (!Number.isInteger(accountId)) {
+      return bot.sendMessage(userId, '❌ ID 格式不正确', { reply_markup: mainMenu() });
+    }
+
+    const result = deleteAccount(userId, accountId);
+    if (result.changes > 0) {
+      return bot.sendMessage(userId, '✅ 账号已删除。', { reply_markup: mainMenu() });
+    }
+    return bot.sendMessage(userId, '❌ 未找到该账号。', { reply_markup: mainMenu() });
   }
 });
 
@@ -317,5 +331,38 @@ bot.on('callback_query', async (query) => {
 bot.on('polling_error', (err) => {
   console.error('Polling error:', err.message);
 });
+
+// ─── Auto-check Timer ─────────────────────────────────────────────────────────
+
+async function autoCheckAndRemind() {
+  if (!ADMIN_ID) return;
+
+  const accounts = getAccounts(ADMIN_ID);
+  if (accounts.length === 0) return;
+
+  for (const acc of accounts) {
+    try {
+      const result = await loginAndCheckExpiry(acc.username, acc.password);
+      logCheck(ADMIN_ID, acc.id, result.expiryDate || null, result.daysLeft || null);
+
+      if (result.success && result.daysLeft <= 1) {
+        await bot.sendMessage(
+          ADMIN_ID,
+          `⚠️ *XServer VPS 到期提醒*\n\n账号: *${acc.username}*\n到期日: *${result.expiryDate}*\n剩余: *${result.daysLeft} 天*\n\n请尽快续期。`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: inlineRenewMenu(acc.id),
+          }
+        );
+      }
+    } catch (e) {
+      console.error(`Auto-check failed for ${acc.username}: ${e.message}`);
+    }
+  }
+}
+
+// Run first check 30s after startup, then every 6 hours
+setTimeout(autoCheckAndRemind, 30 * 1000);
+setInterval(autoCheckAndRemind, 6 * 60 * 60 * 1000);
 
 console.log('✅ XServer Renew Bot started');
