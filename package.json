@@ -1,0 +1,14 @@
+{
+  "name": "renewxserver",
+  "version": "1.0.0",
+  "description": "XServer VPS renewal bot with Telegram interface",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.64.0",
+    "better-sqlite3": "^9.4.3",
+    "playwright": "^1.42.1"
+  }
+}
