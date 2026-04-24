@@ -9,6 +9,6 @@
   "dependencies": {
     "node-telegram-bot-api": "^0.64.0",
     "better-sqlite3": "^9.4.3",
-    "playwright": "^1.42.1"
+    "playwright": "1.59.1"
   }
 }
