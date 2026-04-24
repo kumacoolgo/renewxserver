@@ -1,0 +1,154 @@
+好，就按 **方案 A** 做。
+
+我已经把右边文档重写成最终版规划了：
+**Telegram Bot + Zeabur 部署 + SQLite 存账号 + 自动检测期限 + 手动完成最终验证。**
+
+这个版本不再搞远程浏览器，不强行卡 CF，最稳。
+
+---
+
+## 最终目标
+
+你的机器人负责：
+
+```text
+/start
+↓
+显示菜单
+↓
+添加 XServer 账号密码
+↓
+保存账号
+↓
+自动登录 XServer
+↓
+打开 https://secure.xserver.ne.jp/xapanel/xvps/index
+↓
+读取利用期限
+↓
+剩余 <= 1 天时提醒更新
+↓
+点“更新”按钮后，Bot 给你 XServer 登录入口
+↓
+你手动打开页面完成数字验证码/CF
+↓
+完成后点 Bot 的“我已更新，重新检查”
+```
+
+---
+
+## Zeabur 环境变量只需要两个
+
+```env
+TELEGRAM_BOT_TOKEN=你的机器人token
+ADMIN_TELEGRAM_ID=你的Telegram数字ID
+```
+
+账号密码不放环境变量，通过 Bot 对话保存到 SQLite。
+
+---
+
+## 仓库结构
+
+放到你的仓库：
+
+```text
+https://github.com/kumacoolgo/renewxserver/tree/main
+```
+
+结构：
+
+```text
+renewxserver/
+├── bot.js
+├── db.js
+├── xserver.js
+├── package.json
+├── Dockerfile
+├── .env.example
+└── README.md
+```
+
+---
+
+## 核心检测逻辑
+
+登录后直接抓这个页面：
+
+```text
+https://secure.xserver.ne.jp/xapanel/xvps/index
+```
+
+页面里已有 `利用期限`，不需要进契约详情页。你上传的页面源码里可以确认列表页就是 `XServer VPS契約管理ページ`，登录后会进入 `/xapanel/xvps/index`。
+
+核心 selector：
+
+```js
+tr:has(.freeServerIco) .contract__term
+```
+
+返回类似：
+
+```text
+2026-04-25
+```
+
+然后计算剩余天数。
+
+---
+
+## 更新按钮逻辑
+
+Bot 不在服务器里硬点 CF，而是给你：
+
+```text
+[打开 XServer 登录页]
+[我已更新，重新检查]
+```
+
+你点登录页后，手动走：
+
+1. 登录
+2. 进 VPS 首页
+3. 点契约情報
+4. 点更新する
+5. 点「引き続き無料VPSの利用を継続する」
+6. 输入数字验证码
+7. 如有 CF，手动点
+8. 点「無料VPSの利用を継続する」
+
+你提供的更新页和确认页也已经确认流程是 `/freevps/extend/index?id_vps=...` 到 `/freevps/extend/conf`。
+
+---
+
+## 下一步你直接做
+
+把右边文档里的这些文件复制到 GitHub：
+
+```text
+bot.js
+db.js
+xserver.js
+package.json
+Dockerfile
+```
+
+然后 Zeabur 里：
+
+1. 绑定 GitHub 仓库 `kumacoolgo/renewxserver`
+2. 添加环境变量：
+
+   ```env
+   TELEGRAM_BOT_TOKEN=xxx
+   ADMIN_TELEGRAM_ID=xxx
+   ```
+3. 挂载 `/data`
+4. Deploy
+
+跑起来后，Telegram 里发：
+
+```text
+/start
+```
+
+就能开始添加账号和检测期限。
