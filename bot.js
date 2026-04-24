@@ -57,7 +57,7 @@ function mainMenu() {
     keyboard: [
       ['📋 账号列表', '➕ 添加账号'],
       ['🔄 立即检测', '❌ 删除账号'],
-      ['📖 帮助'],
+      ['📘 帮助'],
     ],
     resize_keyboard: true,
   };
@@ -196,20 +196,63 @@ bot.on('message', async (msg) => {
   if (!text || text.startsWith('/')) return;
   if (!isAdmin(userId)) return;
 
-  // Handle menu button inputs
-  if (text === '📋 账号列表') {
-    return bot.emit('message', { ...msg, text: '/list' });
+  // Handle menu button inputs (use text.includes to avoid emoji mismatch)
+  if (text.includes('账号列表')) {
+    const accounts = await getAccounts(userId);
+    if (accounts.length === 0) {
+      return bot.sendMessage(userId, '没有保存任何账号。用 /add 添加。', {
+        reply_markup: mainMenu(),
+      });
+    }
+
+    const list = accounts.map((acc) =>
+      `• *${acc.username}* (ID: ${acc.id})\n  添加于 ${acc.created_at}`
+    ).join('\n\n');
+
+    return bot.sendMessage(userId, `*已保存账号 (${accounts.length}):*\n\n${list}`, {
+      parse_mode: 'Markdown',
+      reply_markup: mainMenu(),
+    });
   }
-  if (text === '➕ 添加账号') {
-    return bot.emit('message', { ...msg, text: '/add' });
+
+  if (text.includes('添加账号')) {
+    pendingActions.set(userId, { action: 'waiting_username' });
+    return bot.sendMessage(userId, '📝 请输入 XServer 用户名（邮箱）:', {
+      reply_markup: { force_reply: true },
+    });
   }
-  if (text === '🔄 立即检测') {
-    return bot.emit('message', { ...msg, text: '/check' });
+
+  if (text.includes('立即检测')) {
+    const sentMsg = await bot.sendMessage(userId, '🔄 正在检测所有账号，请稍候...');
+
+    try {
+      const result = await checkAllAccounts(userId);
+      return bot.editMessageText(result, {
+        chat_id: userId,
+        message_id: sentMsg.message_id,
+        parse_mode: 'Markdown',
+      });
+    } catch (err) {
+      return bot.editMessageText(`❌ 检测失败: ${err.message}`, {
+        chat_id: userId,
+        message_id: sentMsg.message_id,
+      });
+    }
   }
-  if (text === '📖 帮助') {
-    return bot.emit('message', { ...msg, text: '/help' });
+
+  if (text.includes('帮助')) {
+    return bot.sendMessage(userId,
+      `*使用指南*\n\n` +
+      `1. 添加账号 - 输入用户名和密码保存账号\n` +
+      `2. 立即检测 - 检测所有账号到期时间\n` +
+      `3. 账号临期前1天会收到提醒\n` +
+      `4. 收到提醒后用 /renew <id> 获取续期入口\n` +
+      `5. 手动完成网站验证后点「我已更新，重新检查」`,
+      { parse_mode: 'Markdown', reply_markup: mainMenu() }
+    );
   }
-  if (text === '❌ 删除账号') {
+
+  if (text.includes('删除账号')) {
     const accounts = await getAccounts(userId);
     if (accounts.length === 0) {
       return bot.sendMessage(userId, '没有账号可删除。', { reply_markup: mainMenu() });
